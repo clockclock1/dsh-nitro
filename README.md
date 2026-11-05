@@ -4,6 +4,10 @@
 
 插件名 `nitro` 取自「氮气加速」——只在需要把想法一口气推到成品时才按下，松手即恢复常规工作流。
 
+![输入框开关（开启）](screenshots/01-composer-on.png)
+
+![输入框开关（关闭）](screenshots/02-composer-off.png)
+
 ---
 
 ## 三个子系统

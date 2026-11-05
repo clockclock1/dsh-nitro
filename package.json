@@ -1,28 +1,49 @@
 {
   "name": "dsh-nitro",
   "version": "1.0.0",
-  "private": true,
   "type": "module",
   "description": "极速交付模式：一个输入框开关驱动三个子系统——测试调用断路器、SEARCH/REPLACE 局部替换引擎、终端输出脱水。",
+  "license": "MIT",
+  "author": "clockclock1",
+  "homepage": "https://github.com/clockclock1/dsh-nitro",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clockclock1/dsh-nitro.git"
+  },
+  "bugs": {
+    "url": "https://github.com/clockclock1/dsh-nitro/issues"
+  },
   "keywords": [
     "dsh",
     "dsh-plugin",
     "deepseek-harness",
+    "plugin",
+    "web-ui",
     "fast-mode",
     "apply-patch",
-    "output-trim"
+    "output-trim",
+    "circuit-breaker"
   ],
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.1.7-0 <0.3.0-0"
+  },
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
     "lib/index.js",
     "lib/client.js",
     "cordis.patch.yml",
-    "README.md"
+    "screenshots.json",
+    "screenshots",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
@@ -33,5 +54,17 @@
       "inject": [],
       "immediately": true
     }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": ">=0.1.7-0 <0.3.0-0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }
