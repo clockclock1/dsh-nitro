@@ -8,6 +8,8 @@
 
 ![输入框开关（关闭）](screenshots/02-composer-off.png)
 
+![插件列表里的 dsh-nitro](screenshots/03-plugins.png)
+
 ---
 
 ## 三个子系统
@@ -81,7 +83,19 @@ curl -X POST http://127.0.0.1:<port>/nitro/toggle -d '{"enabled":true}'
 
 ## 安装
 
-本仓库是 DSH profile 插件包。装配由 `link-profile.mjs` 完成（generation 目录 + junction + `package.json` 三处条目）：
+从 GitHub release 装（预构建 tgz，无需 `allowBuilds` 授权）：
+
+```bash
+dsh plugin --profile web add https://github.com/clockclock1/dsh-nitro
+```
+
+也可以从插件市场安装（收录后）：
+
+```bash
+dsh plugin --profile web add clockclock1/dsh-nitro
+```
+
+本地开发时用 `link-profile.mjs` 装配（generation 目录 + junction + `package.json` 三处条目）：
 
 ```bash
 node link-profile.mjs          # 装配进 web profile
@@ -89,12 +103,6 @@ node link-profile.mjs --revert # 撤销
 ```
 
 装配后需重载插件使其生效（运行中的 Cordis 实例持有旧模块）。
-
-也可以通过插件市场安装：
-
-```bash
-dsh plugin --profile web add github:clockclock1/dsh-nitro
-```
 
 ---
 
@@ -105,7 +113,14 @@ lib/index.js        host 半边：断路器、脱水器、apply_patch、状态�
 lib/client.js       客户端半边：输入框 ⚡ 开关
 cordis.patch.yml    插件装配补丁
 link-profile.mjs    本地装配 / 撤销脚本
+screenshots.json    市场详情页截图清单（路径相对仓库根）
+screenshots/        截图资源
+icon.png            市场列表图标（256×256）
+CHANGELOG.md        版本记录
+LICENSE             MIT
 probe-*.mjs         离线自检脚本（mock ctx / mock ModuleLoader）
+shoot.mjs           截屏脚本（CDP 驱动运行中的 DSH Web GUI）
+gen-icon.mjs        图标生成脚本（零依赖 PNG 编码）
 ```
 
 ---
