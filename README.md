@@ -125,6 +125,21 @@ gen-icon.mjs        图标生成脚本（零依赖 PNG 编码）
 
 ---
 
+## 发布（维护者）
+
+版本号只从 `package.json` 读，其余全自动：
+
+```bash
+node publish.mjs --dry-run   # 预检 + 打包，不动远端
+node publish.mjs             # npm publish + git push + gh release
+```
+
+`publish.mjs` 会先确认这一版还没上过 registry（发布过的版本无法覆盖），再校验 `dsh.bundle.patch`、`LICENSE`、`screenshots.json` 是否齐全。
+
+目录收录走 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)：一个 PR 只加 `data/plugins/clockclock1__dsh-nitro.yml`，README 由维护者从这些 YAML 生成，不要手改。条目里的 `tarball` 钉在 release tag 上，`icon` 由 `gen-icon.mjs` 生成后 push 到本仓库。
+
+---
+
 ## 已知取舍
 
 - 断路器让模型看不到真实测试结果，**开启期间任何「测试通过」的结论都不可信**。这是设计意图，不是缺陷：开关存在的意义就是在不需要验证时省掉验证。
