@@ -1,0 +1,81 @@
+# 打 tag 即发布：npm publish + GitHub release 资产。
+#
+# 前置：仓库 Settings → Secrets and variables → Actions 里加一个
+# NPM_TOKEN（npmjs.com → Access Tokens → Granular Access Token，
+# 权限 Read and write，包范围限 dsh-nitro）。
+#
+# 用法：
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# tag 与 package.json 的 version 必须一致，否则工作流直接失败——
+# 目录条目里的 tarball 钉的是 release tag，两者错位就会 404。
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: 校验 tag 与 package.json 版本一致
+        run: |
+          set -euo pipefail
+          pkg="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "package.json: $pkg   tag: $tag"
+          if [ "$pkg" != "$tag" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 package.json version $pkg 不一致"
+            exit 1
+          fi
+
+      - name: 校验清单可安装
+        run: |
+          set -euo pipefail
+          node -e "
+            const m = require('./package.json');
+            const fs = require('fs');
+            if (!m.dsh?.bundle?.patch) throw new Error('缺少 dsh.bundle.patch');
+            if (!fs.existsSync(m.dsh.bundle.patch)) throw new Error('patch 文件不存在: ' + m.dsh.bundle.patch);
+            for (const f of ['LICENSE', 'README.md', 'CHANGELOG.md', 'screenshots.json']) {
+              if (!fs.existsSync(f)) throw new Error('缺少 ' + f);
+            }
+            if (!m.repository?.url?.includes('github.com')) throw new Error('repository.url 必须指回 GitHub 仓库');
+            console.log('manifest ok:', m.name + '@' + m.version);
+          "
+
+      - name: 语法检查
+        run: |
+          node --check lib/index.js
+          node --check lib/client.js
+
+      - name: 打包
+        run: npm pack
+
+      - name: 发布到 npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: 创建 GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: '*.tgz'
+          generate_release_notes: true
+          body: |
+            详见 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/master/CHANGELOG.md)。
+
+            安装：`dsh plugin --profile web add ${{ github.repository }}`
