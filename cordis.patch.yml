@@ -1,0 +1,6 @@
+# dsh-nitro — composer-level fast-delivery switch.
+# Three subsystems share one toggle: test-call circuit breaker, SEARCH/REPLACE
+# patch engine, and terminal output dehydration.
+- insert:
+    - id: nitro
+      name: 'dsh-nitro'
