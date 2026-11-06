@@ -1,6 +1,6 @@
 # dsh-nitro
 
-**输入框里随时开关的「极速交付」插件。** 一个 ⚡ 开关驱动三个独立子系统，默认**关**（`{"enabled": false}`），不改变 DSH 的任何默认行为。
+**输入框里随时开关的「极速交付」插件。** 一个 ⚡ 开关驱动三个独立子系统，**按会话独立**、新会话默认开启，随时可对本对话单独关掉。
 
 插件名 `nitro` 取自「氮气加速」——只在需要把想法一口气推到成品时才按下，松手即恢复常规工作流。
 
@@ -20,20 +20,26 @@
 | **SEARCH/REPLACE 引擎** | `apply_patch` 工具 | 只输出 `<<<<<<< SEARCH` / `=======` / `>>>>>>> REPLACE` 块，本地一次原子写入；**任一块锚点未命中或歧义 → 整次回滚并报错，盘上零改动** |
 | **终端脱水 Dehydrator** | `tools/post-execute` waterfall | 验证类命令通过 → 只回 `All tests passed.`；失败 → 滤掉 INFO/WARN/DEBUG 与堆栈帧，只留最后 15 行 |
 
-三者共用一个开关，可以独立失效：关掉时三个钩子全部 `return next()`，工具调用与输出原样透传。
+三者共用一个会话级开关，关掉时三个钩子对该会话全部 `return next()`，工具调用与输出原样透传；同一时间别的会话不受影响。
 
 ---
 
 ## 开关
 
-- 状态文件：`$DSH_HOME/nitro.json`（默认 `{"enabled": false}`），跨会话保留；文件一旦变化（另一个窗口切换或手改），下一次工具调用即生效，无需重载插件
-- `GET /nitro/state` → `{ok, enabled, stats, version}`
-- `POST /nitro/toggle` → 无 body 取反，`{enabled:true|false}` 指定
-- 界面：输入框左侧 ⚡ 按钮（`conversation.input.left` 槽，id `nitro`，order 20），多标签页通过 `dsh-nitro:changed` 事件与 4 秒轮询保持一致
+开关是**按会话**的，不是按机器：
+
+- 每个会话独立一份状态，新会话默认**全开**（`default: true`），不用先点一下才生效
+- 状态文件：`$DSH_HOME/nitro.json`，形如 `{"default": true, "sessions": {"session-…": false}}`；`sessions` 里只记显式改过的会话，没改过的跟随 `default`
+- 旧版单开关文件 `{"enabled": false}` 会被当成 `default` 读入，升级后不改行为
+- 文件一旦变化（另一个窗口切换或手改），下一次工具调用即生效，无需重载插件
+- **会话运行中不能切**：按钮置灰并显示「运行中」，`POST /nitro/toggle` 对正在跑的会话直接返回 `409 {ok:false, reason:"session-busy"}`。中途换挡会让同一轮里的命令一半按旧规则、一半按新规则走，所以这一步是硬拒绝，不只是 UI 提示
+- `GET /nitro/state?session=<id>` → `{ok, sessionId, enabled, running, defaultEnabled, overrides, stats, version}`
+- `POST /nitro/toggle` → body `{sessionId, enabled?}`；省略 `enabled` 则取反，省略 `sessionId` 则改 `default`
+- 界面：输入框左侧 ⚡ 按钮（`conversation.input.left` 槽，id `nitro`，order 20），多标签页通过 `dsh-nitro:changed` 事件与 1.5 秒轮询保持一致
 
 ```bash
-curl http://127.0.0.1:<port>/nitro/state
-curl -X POST http://127.0.0.1:<port>/nitro/toggle -d '{"enabled":true}'
+curl "http://127.0.0.1:<port>/nitro/state?session=session-abc"
+curl -X POST http://127.0.0.1:<port>/nitro/toggle -d '{"sessionId":"session-abc","enabled":false}'
 ```
 
 ---
@@ -158,5 +164,6 @@ node publish.mjs             # npm publish + git push + gh release
 ## 已知取舍
 
 - 断路器让模型看不到真实测试结果，**开启期间任何「测试通过」的结论都不可信**。这是设计意图，不是缺陷：开关存在的意义就是在不需要验证时省掉验证。
+- 会话运行期间不能切换开关（`409 session-busy`）。要改规则，等这一轮跑完。
 - 脱水器只保留最后 15 行失败信息。极长的真实错误若在中间而非末尾，会被截掉；重跑单条失败命令即可拿到完整输出。
 - 系统提示注入依赖模型配合。模型仍可能无视提示直接跑命令——那会被断路器接住，但交付质量由模型本身决定。

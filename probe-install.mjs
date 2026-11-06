@@ -64,7 +64,7 @@ const ctx = {
     },
   },
   on(event, handler) {
-    handlers[event]?.push(handler)
+    ;(handlers[event] ??= []).push(handler)
   },
   effect(fn) {
     const d = fn()
@@ -103,6 +103,7 @@ const call = async (p, body) => {
   const chunks = []
   let status = 0
   const req = {
+    url: p,
     [Symbol.asyncIterator]: async function* () {
       if (body !== undefined) yield Buffer.from(JSON.stringify(body))
     },
@@ -115,14 +116,18 @@ const call = async (p, body) => {
       chunks.push(payload)
     },
   }
-  await routes.get(p)(req, res)
+  await routes.get(p.split('?')[0])(req, res)
   return { status, body: JSON.parse(chunks.join('') || '{}') }
 }
 
-const st0 = await call('/nitro/state')
-ok('state defaults to off', st0.body.enabled === false, JSON.stringify(st0.body))
-const on = await call('/nitro/toggle')
-ok('toggle arms it', on.body.enabled === true, JSON.stringify(on.body))
+const st0 = await call('/nitro/state?session=install-a')
+ok('a fresh session starts on', st0.body.enabled === true, JSON.stringify(st0.body.enabled))
+const off = await call('/nitro/toggle', { sessionId: 'install-a', enabled: false })
+ok('toggling one session off answers 200', off.status === 200 && off.body.enabled === false)
+const other = await call('/nitro/state?session=install-b')
+ok('another session keeps the default', other.body.enabled === true)
+const rearm = await call('/nitro/toggle', { sessionId: 'install-a', enabled: true })
+ok('re-arming the same session works', rearm.body.enabled === true)
 
 // ---- breaker: the host's own pwsh shape
 const breaker = handlers['tools/execute'][0]

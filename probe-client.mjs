@@ -79,6 +79,35 @@ if (none !== null) throw new Error(`expected null without sessionId, got ${JSON.
 const rendered = slots[0].component({ sessionId: 's1' })
 const text = JSON.stringify(rendered)
 if (!text.includes('极速')) throw new Error('rendered button has no label')
+
+// buttonModel holds the whole visual rule set, so assert it directly: the
+// mid-turn lock is the part a user must not be able to click through, and a
+// React stub cannot drive state into the component.
+const model = exports.buttonModel
+if (typeof model !== 'function') throw new Error('buttonModel is not exported')
+const idle = model({ enabled: false })
+const armed = model({ enabled: true })
+const pending = model({ enabled: false, busy: true })
+const runningOn = model({ enabled: true, running: true })
+const runningOff = model({ enabled: false, running: true })
+
+const checks = [
+  ['idle button is clickable', idle.disabled === false && idle.suffix === 'OFF' && idle.armed === false],
+  ['armed button is clickable and marked', armed.disabled === false && armed.suffix === 'ON' && armed.armed === true],
+  ['a pending POST disables the button', pending.disabled === true],
+  ['a running session locks the button', runningOn.disabled === true && runningOff.disabled === true],
+  ['the lock is visible, not silent', runningOn.suffix === '运行中' && runningOff.suffix === '运行中'],
+  ['the lock explains itself', runningOn.title.includes('本轮结束后')],
+  [
+    'every title names the per-session scope',
+    armed.title.includes('只影响这个会话') && idle.title.includes('只影响这个会话'),
+  ],
+]
+for (const [label, pass] of checks) {
+  console.log(` ${pass ? 'ok  ' : 'FAIL'} ${label}`)
+  if (!pass) throw new Error(`client check failed: ${label}`)
+}
+
 console.log('render without session:', none)
-console.log('render with session :', text.slice(0, 180), '...')
+console.log('render with session :', text.slice(0, 200), '...')
 console.log('\nCLIENT BUNDLE OK')

@@ -3,12 +3,18 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+// Isolation: the plugin resolves $DSH_HOME/nitro.json at import time, so the
+// scratch home has to exist before the module loads — otherwise this probe
+// rewrites the operator's real switch.
+const stateHome = fs.mkdtempSync(path.join(os.tmpdir(), 'nitro-state-'))
+process.env.DSH_HOME = stateHome
+
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'nitro-'))
 const file = path.join(scratch, 'sample.txt')
 fs.writeFileSync(file, 'line one\nline two\nline three\nline four\n', 'utf8')
 
 const registered = []
-const handlers = { 'tools/execute': [], 'tools/post-execute': [] }
+const handlers = { 'tools/execute': [], 'tools/post-execute': [], 'agent/status': [] }
 const routes = new Map()
 const sections = []
 
@@ -77,12 +83,23 @@ console.log('@ sections:', sections.map((s) => `${s.name}@${s.order}`).join(', '
 console.log('@ tools/execute handlers:', handlers['tools/execute'].length)
 console.log('@ tools/post-execute handlers:', handlers['tools/post-execute'].length)
 
-// ---- toggle on through the route
-const state = { enabled: false }
+// ---- the switch is per session, driven through the routes
+
+let checks = 0
+let failures = 0
+const expect = (label, ok, detail) => {
+  checks += 1
+  if (!ok) failures += 1
+  console.log(` ${ok ? 'ok  ' : 'FAIL'} ${checks}. ${label}${detail === undefined ? '' : ` — ${detail}`}`)
+}
+
+const api = mod.__probe
+
 const call = async (p, body) => {
   const chunks = []
   let status = 0
   const req = {
+    url: p,
     [Symbol.asyncIterator]: async function* () {
       if (body !== undefined) yield Buffer.from(JSON.stringify(body))
     },
@@ -95,14 +112,26 @@ const call = async (p, body) => {
       chunks.push(payload)
     },
   }
-  await routes.get(p)(req, res)
+  await routes.get(p.split('?')[0])(req, res)
   return { status, body: JSON.parse(chunks.join('')) }
 }
 
-console.log('\n-- GET /nitro/state:', JSON.stringify(await call('/nitro/state')))
-console.log('-- POST /nitro/toggle:', JSON.stringify(await call('/nitro/toggle')))
-console.log('-- GET again:', JSON.stringify(await call('/nitro/state')))
-console.log('-- POST re-arm {enabled:true}:', JSON.stringify(await call('/nitro/toggle', { enabled: true })))
+const freshA = await call('/nitro/state?session=sA')
+expect('a brand-new session starts ON', freshA.body.enabled === true && freshA.body.running === false, `enabled=${freshA.body.enabled}`)
+expect('state reports the session it answered for', freshA.body.sessionId === 'sA')
+
+const offA = await call('/nitro/toggle', { sessionId: 'sA', enabled: false })
+expect('POST toggle off for sA answers 200', offA.status === 200 && offA.body.enabled === false)
+
+const freshB = await call('/nitro/state?session=sB')
+expect('sB is untouched by sA', freshB.body.enabled === true)
+
+const againA = await call('/nitro/state?session=sA')
+expect('sA stays off on the next read', againA.body.enabled === false)
+expect('only one session override was written', againA.body.overrides === 1, `overrides=${againA.body.overrides}`)
+
+const noSession = await call('/nitro/state')
+expect('a request without a session follows the default', noSession.body.enabled === true)
 
 // ---- exercise apply_patch through the registered tool
 const applyPatch = registered.find((t) => t.name === 'apply_patch')
@@ -169,7 +198,12 @@ const next = async () => {
   return { isError: false, value: { kind: 'foreground', cwd: scratch, exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 1, stdout: { text: 'real', truncated: false }, stderr: { text: '', truncated: false } } }
 }
 
-const shellExec = (command) => ({ name: 'pwsh', arguments: { command, description: 'x' }, agent: undefined, signal: { aborted: false } })
+const shellExec = (command, sessionId) => ({
+  name: 'pwsh',
+  arguments: { command, description: 'x' },
+  agent: sessionId === undefined ? undefined : { session: { id: sessionId } },
+  signal: { aborted: false },
+})
 
 console.log('\n-- breaker on `npm test`:')
 console.log('   next called:', nextCalled.count)
@@ -217,28 +251,65 @@ console.log((await dehydrate(shellExec('pytest'), resultFail, async () => ({ kin
 console.log('\n-- dehydrator, short non-verification output (must pass through):')
 console.log('   ', JSON.stringify(await dehydrate(shellExec('git status'), { isError: false, value: { ...resultPass.value, stdout: { text: 'clean', truncated: false } } }, async () => ({ kind: 'accept' }))))
 
-console.log('\n@ state file:', fs.existsSync(path.join(process.env.DSH_HOME || path.join(os.homedir(), '.dsh'), 'nitro.json')))
+// ---------------------------------------------------- per-session breaker
+console.log('\n-- per session: sA was switched off, sB never was')
+const beforeA = nextCalled.count
+await breaker(shellExec('npm test', 'sA'), next)
+expect('the breaker lets sA through', nextCalled.count - beforeA === 1)
+const beforeB = nextCalled.count
+await breaker(shellExec('npm test', 'sB'), next)
+expect('the breaker still fakes the same command in sB', nextCalled.count - beforeB === 0)
+const beforeNone = nextCalled.count
+await breaker(shellExec('npm test'), next)
+expect('a call with no session follows the default (on)', nextCalled.count - beforeNone === 0)
 
-console.log('-- reset to default OFF:', JSON.stringify(await call('/nitro/toggle', { enabled: false })))
+console.log('\n@ state file:', api.STATE_FILE)
+
+// ------------------------------------------------------- mid-turn lock
+// The composer disables the button while a turn runs; the route has to hold the
+// same rule, because it is only a URL.
+const agentStatus = handlers['agent/status'][0]
+agentStatus({ agent: { session: { id: 'sC' } }, status: 'running' })
+const busy = await call('/nitro/toggle', { sessionId: 'sC', enabled: false })
+expect('a running session refuses the toggle', busy.status === 409 && busy.body.ok === false, `status=${busy.status}`)
+expect('the refusal names the reason', busy.body.reason === 'session-busy')
+expect('the refusal leaves the switch untouched', busy.body.enabled === true)
+expect('state reports that session as running', (await call('/nitro/state?session=sC')).body.running === true)
+
+agentStatus({ agent: { session: { id: 'sC' } }, status: 'idle' })
+const idle = await call('/nitro/toggle', { sessionId: 'sC', enabled: false })
+expect('the same toggle is accepted once the turn ended', idle.status === 200 && idle.body.enabled === false)
+expect('other sessions are not running', api.sessionRunning('sA') === false)
+
+// ------------------------------------------------------- v1 file migration
+fs.writeFileSync(api.STATE_FILE, JSON.stringify({ enabled: false }, null, 2), 'utf8')
+const migrated = api.readState()
+expect('a v1 global switch becomes the default', migrated.default === false && Object.keys(migrated.sessions).length === 0)
+expect('the migrated default governs an untouched session', (await call('/nitro/state?session=sD')).body.enabled === false)
+
+// --------------------------------------------------------- hot reload
+// The composer button and a hand edit of nitro.json write the same file.
+const hotBreaker = handlers['tools/execute'][0]
+fs.writeFileSync(api.STATE_FILE, JSON.stringify({ default: true, sessions: {} }, null, 2), 'utf8')
+const hot = await hotBreaker(shellExec('npm test', 'sE'), async () => 'REAL-RUN')
+expect('an external rewrite is picked up without a remount', hot !== 'REAL-RUN')
+
+// Size changes with the content, so the mtime resolution cannot hide the edit.
+fs.writeFileSync(api.STATE_FILE, JSON.stringify({ default: true, sessions: { sE: false }, pad: 'x' }, null, 2), 'utf8')
+const hotOff = await hotBreaker(shellExec('npm test', 'sE'), async () => 'REAL-RUN')
+expect('a per-session override in the file wins over the default', hotOff === 'REAL-RUN')
+
+// --------------------------------------------------- prompt section per session
+const sectionText = sections[0].text
+expect('the prompt section is empty for the session that is off', sectionText({ id: 'sE' }) === '')
+expect('the prompt section is present for a session that is on', sectionText({ id: 'sX' }).includes('fast delivery mode'))
+expect('the prompt section resolves a bare id too', sectionText('sE') === '')
 
 fs.rmSync(scratch, { recursive: true, force: true })
+fs.rmSync(stateHome, { recursive: true, force: true })
 
-// ------------------------------------------------- hot-reload of the state file
-// The composer button and a hand edit of nitro.json both write the same file.
-// Flip it behind the plugin's back and the hooks must see it without a remount.
-const api = mod.__probe
-const hotBreaker = handlers['tools/execute'][0]
-const armedBefore = await hotBreaker({ name: 'pwsh', cwd: scratch, arguments: { command: 'npm test' } }, async () => 'REAL-RUN')
-console.log('\n== hot reload: before toggle, breaker passes through:', armedBefore === 'REAL-RUN')
-
-api.writeState({ enabled: true })
-// Same-millisecond writes can collide on mtime resolution; bump size to force a new stamp.
-fs.writeFileSync(api.STATE_FILE, JSON.stringify({ enabled: true, pad: 'x' }, null, 2), 'utf8')
-const armedAfter = await hotBreaker({ name: 'pwsh', cwd: scratch, arguments: { command: 'npm test' } }, async () => 'REAL-RUN')
-console.log('== hot reload: after external write, breaker intercepts:', armedAfter !== 'REAL-RUN')
-
-routes.get('/nitro/toggle')
-const off = await routes.get('/nitro/toggle')({ [Symbol.asyncIterator]: async function* () {} }, { writeHead() {}, end() {} })
-console.log('== hot reload: toggle stands down again:', fs.readFileSync(api.STATE_FILE, 'utf8').includes('"enabled": false'))
+console.log(`\n${checks - failures}/${checks} checks passed`)
+if (failures > 0) process.exitCode = 1
+console.log('PLUGIN PROBE ' + (failures === 0 ? 'OK' : 'FAILED'))
 
 
