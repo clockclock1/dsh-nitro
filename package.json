@@ -1,6 +1,6 @@
 {
   "name": "dsh-nitro",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "type": "module",
   "description": "极速交付模式：一个输入框开关驱动三个子系统——测试调用断路器、SEARCH/REPLACE 局部替换引擎、终端输出脱水。",
   "license": "MIT",
