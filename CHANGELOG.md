@@ -2,6 +2,20 @@
 
 遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 1.0.2
+
+与 dsh-ops 同时启用时的兼容修正。
+
+### 修复
+
+- **`ops_bash` 不被拦截**：dsh-ops 的 `hidePwsh` 打开后，宿主不再暴露 `pwsh`，模型看到的唯一 shell 是 `ops_bash`。断路器此前只认 `pwsh` / `bash`，于是开关看着是开的，实际一条命令都没拦到。现在 `ops_bash` 也进拦截名单。
+- **伪造结果被宿主判为非法输出**：`ops_bash` 有自己的输出契约（多 `status`、不允许 `cwd`，0.4.x 与 0.5.x 之间还不一样），照搬宿主 `foreground` 形状会被 `output.schema` 拒绝，报成 "returned invalid output" —— 本该是"跳过测试"，却变成"工具坏了"。现在候选形状按 `ctx.tools.get(name).output.schema` 实测挑选，全部不合就放行真命令，绝不伪造。
+
+### 变更
+
+- 脱水器仍然只处理宿主 `pwsh` / `bash`：`ops_bash` 自带 64 KB 上限与 spill 路径，且它的值可能经 `run_code` 交给程序消费，替换内容有风险。
+- 新增 `probe-ops.mjs`：用 dsh-ops 0.4.x / 0.5.x 两套真实输出契约验证伪造值的合法性，并断言"schema 无法满足时不得伪造"。
+
 ## 1.0.1
 
 市场兼容性与状态同步修正。功能与 1.0.0 相同，改动都在清单与状态刷新上。

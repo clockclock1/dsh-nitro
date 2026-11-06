@@ -1,4 +1,4 @@
-﻿// End-to-end smoke test of dsh-nitro's host half against a mock ctx.
+// End-to-end smoke test of dsh-nitro's host half against a mock ctx.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -188,7 +188,18 @@ const before2 = nextCalled.count
 await breaker(shellExec('git status'), next)
 console.log('   next called delta:', nextCalled.count - before2)
 
+console.log('\n-- breaker on `ops_bash npm test` (dsh-ops rung name):')
+const beforeOps = nextCalled.count
+const opsIntercepted = await breaker({ ...shellExec('npm test'), name: 'ops_bash' }, next)
+console.log('   next called delta:', nextCalled.count - beforeOps, '| verdict:', opsIntercepted === 'REAL-RUN' ? 'PASSED THROUGH (bug)' : 'INTERCEPTED')
+
 const dehydrate = handlers['tools/post-execute'][0]
+
+console.log('\n-- dehydrator must not touch `ops_bash` (own result schema):')
+const opsResult = { isError: false, value: { kind: 'foreground', cwd: scratch, exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 1, stdout: { text: Array.from({ length: 300 }, (_, i) => `line ${i}`).join('\n'), truncated: false }, stderr: { text: '', truncated: false } } }
+const opsDehydrated = await dehydrate({ ...shellExec('npm test'), name: 'ops_bash' }, opsResult, async () => ({ kind: 'accept' }))
+console.log('   verdict:', JSON.stringify(opsDehydrated) === '{"kind":"accept"}' ? 'LEFT ALONE (ok)' : 'REWRITTEN (bug)')
+
 const resultPass = { isError: false, value: { kind: 'foreground', cwd: scratch, exitCode: 0, signal: null, timedOut: false, aborted: false, timeoutMs: 1, stdout: { text: Array.from({ length: 300 }, (_, i) => `INFO test case ${i} passed`).join('\n'), truncated: false }, stderr: { text: '', truncated: false } } }
 console.log('\n-- dehydrator, passing run:', JSON.stringify(await dehydrate(shellExec('pytest'), resultPass, async () => ({ kind: 'accept' }))))
 

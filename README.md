@@ -79,6 +79,21 @@ curl -X POST http://127.0.0.1:<port>/nitro/toggle -d '{"enabled":true}'
 - 不修改 `node_modules` 下任何运行时包，不依赖 `dsh-purge` 之类的补丁式改造
 - 客户端零 CSS、零 locale 服务、零全局状态，最坏情况只是按钮不显示，不会破坏输入框
 
+### 与 dsh-ops 同开
+
+dsh-ops 会把宿主 shell 换成自己的 `ops_bash` 梯子，而 `ops_bash` 的输出契约和宿主 `foreground` 不是同一个东西，所以断路器要单独处理：
+
+| 组合 | 断路器 | 脱水器 | `apply_patch` |
+| --- | --- | --- | --- |
+| 单独用 nitro | ✅ `pwsh` / `bash` | ✅ | ✅ |
+| nitro + dsh-ops（native 呈现） | ✅ `ops_bash` | ⚠️ 不处理 `ops_bash` | ✅ |
+| nitro + dsh-ops（PTC 呈现） | ⚠️ 拦不到 `run_code` 内部调用 | ⚠️ 同上 | ⚠️ 模型侧不可见 |
+
+- **形状自适应**：伪造值先按 `ctx.tools.get(name).output.schema` 试填，`ops_bash` 的 0.4.x（带 `kind: 'foreground'`）与 0.5.x（不带 `kind`、禁止 `cwd`）都能通过；一个都合不上就放行真命令，绝不返回宿主会拒绝的值。
+- **脱水器只管宿主 rung**：`ops_bash` 自带 64 KB 上限和 spill 路径，且它的值可能经 `run_code` 交给程序消费，替换文本有风险，因此不动它。
+- **PTC 呈现下拦不到**：`run_code` 内部的 `ops_bash` 由 dsh-ops 自己的 controller 直接调 `definition.execute`，不走 `tools/execute` waterfall；同时 PTC 只允许模型直调 `run_code`，`apply_patch` 也就不在模型可见的工具面里。想在 PTC 下拿到完整加速，把 dsh-ops 的呈现切回 native。
+- 钩子注册顺序无关：dsh-ops 的 `tools/execute` 只做工作区 ACL 预备后 `next()`，nitro 命中时直接短路，两者都不改写对方的 disposer。
+
 ---
 
 ## 安装
