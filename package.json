@@ -1,6 +1,6 @@
 {
   "name": "dsh-nitro",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "极速交付模式：一个输入框开关驱动三个子系统——测试调用断路器、SEARCH/REPLACE 局部替换引擎、终端输出脱水。",
   "license": "MIT",
@@ -28,6 +28,17 @@
     "node": ">=20",
     "dsh": ">=0.1.7-0 <0.3.0-0"
   },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "^0.2.1-rc.2"
+  },
+  "peerDependencies": {
+    "dsh": ">=0.2.0-0 <0.3.0-0"
+  },
+  "peerDependenciesMeta": {
+    "dsh": {
+      "optional": true
+    }
+  },
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
@@ -53,14 +64,6 @@
       "platform": "web",
       "inject": [],
       "immediately": true
-    }
-  },
-  "peerDependencies": {
-    "@deepseek-ai/dsh-tools": ">=0.1.7-0 <0.3.0-0"
-  },
-  "peerDependenciesMeta": {
-    "@deepseek-ai/dsh-tools": {
-      "optional": true
     }
   },
   "publishConfig": {

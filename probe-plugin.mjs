@@ -1,4 +1,4 @@
-// End-to-end smoke test of dsh-nitro's host half against a mock ctx.
+﻿// End-to-end smoke test of dsh-nitro's host half against a mock ctx.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -211,3 +211,23 @@ console.log('\n@ state file:', fs.existsSync(path.join(process.env.DSH_HOME || p
 console.log('-- reset to default OFF:', JSON.stringify(await call('/nitro/toggle', { enabled: false })))
 
 fs.rmSync(scratch, { recursive: true, force: true })
+
+// ------------------------------------------------- hot-reload of the state file
+// The composer button and a hand edit of nitro.json both write the same file.
+// Flip it behind the plugin's back and the hooks must see it without a remount.
+const api = mod.__probe
+const hotBreaker = handlers['tools/execute'][0]
+const armedBefore = await hotBreaker({ name: 'pwsh', cwd: scratch, arguments: { command: 'npm test' } }, async () => 'REAL-RUN')
+console.log('\n== hot reload: before toggle, breaker passes through:', armedBefore === 'REAL-RUN')
+
+api.writeState({ enabled: true })
+// Same-millisecond writes can collide on mtime resolution; bump size to force a new stamp.
+fs.writeFileSync(api.STATE_FILE, JSON.stringify({ enabled: true, pad: 'x' }, null, 2), 'utf8')
+const armedAfter = await hotBreaker({ name: 'pwsh', cwd: scratch, arguments: { command: 'npm test' } }, async () => 'REAL-RUN')
+console.log('== hot reload: after external write, breaker intercepts:', armedAfter !== 'REAL-RUN')
+
+routes.get('/nitro/toggle')
+const off = await routes.get('/nitro/toggle')({ [Symbol.asyncIterator]: async function* () {} }, { writeHead() {}, end() {} })
+console.log('== hot reload: toggle stands down again:', fs.readFileSync(api.STATE_FILE, 'utf8').includes('"enabled": false'))
+
+

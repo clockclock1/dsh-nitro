@@ -2,6 +2,21 @@
 
 遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 1.0.1
+
+市场兼容性与状态同步修正。功能与 1.0.0 相同，改动都在清单与状态刷新上。
+
+### 修复
+
+- **手改状态文件不生效**：此前 `nitro.json` 只在插件挂载时读一次，在另一个窗口切换、或直接编辑文件后，所有钩子都看不到变化，必须重载插件。现在每次用到时按 `(mtime, size)` 追踪文件变化并在变化时重读，`stateNow()` 成为唯一读点。
+- **模块级状态声明缺失**：`state` / `stateStamp` 曾落在 `apply()` 闭包里，`stateNow()` 在模块作用域引用它们会抛 `ReferenceError: stateStamp is not defined`。两者已上移到模块作用域，重挂载也不会重置缓存。
+
+### 变更
+
+- 依赖声明拆分：`@deepseek-ai/dsh-tools` 同时作为 `dependencies`（裸导入 `defineTool` 需要它能被解析到）与 `peerDependencies`（`>=0.2.0-0 <0.3.0-0`，钉住插件实际测试过的宿主大版本）。此前把宿主精确版本 `0.2.1-rc.2` 写进 peer，会让任何其它 0.2.x 宿主被误判为不兼容。
+- 随包提供 `package-lock.json`（lockfileVersion 3，根依赖钉 `0.2.1-rc.2`），避免安装时因预发布标签漂移到未验证的构建。
+- `probe-plugin.mjs` 增加状态热重载断言（外部写文件 → 断路器立刻生效 → 再切换 → 立刻失效）。
+
 ## 1.0.0
 
 首个公开发布版本。

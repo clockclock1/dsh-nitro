@@ -26,7 +26,7 @@
 
 ## 开关
 
-- 状态文件：`$DSH_HOME/nitro.json`（默认 `{"enabled": false}`），跨会话保留
+- 状态文件：`$DSH_HOME/nitro.json`（默认 `{"enabled": false}`），跨会话保留；文件一旦变化（另一个窗口切换或手改），下一次工具调用即生效，无需重载插件
 - `GET /nitro/state` → `{ok, enabled, stats, version}`
 - `POST /nitro/toggle` → 无 body 取反，`{enabled:true|false}` 指定
 - 界面：输入框左侧 ⚡ 按钮（`conversation.input.left` 槽，id `nitro`，order 20），多标签页通过 `dsh-nitro:changed` 事件与 4 秒轮询保持一致
