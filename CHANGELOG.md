@@ -2,6 +2,26 @@
 
 遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 1.0.5
+
+去掉对宿主内部包的运行时依赖，并把内核兼容范围放开到全部已发布版本。
+
+### 修复
+
+- **不再依赖 `@deepseek-ai/dsh-tools`**：那是宿主自己的实现包，`@deepseek-ai/dsh` 的依赖清单里根本没有它。插件声明它做 `dependencies`，装出来就是宿主旁边第二份副本，宿主升一个版本、插件钉着旧副本，两份 `defineTool` / 校验器各自为政——正是「把 DSH 自带的公共包列进依赖」的具体形态。现在 `dependencies` 整个删掉，插件运行时零第三方依赖。
+- **两个助手内置**：原本只用到 `defineTool`（把简写 schema 提升成 JSON Schema，并把 `execute` 包一层参数校验）和 `validateJsonSchemaValue`。现在同文件内实现，`lib/*.js` 里没有任何 `@deepseek-ai/*` 导入。
+- **参数校验交回宿主**：宿主在调 `execute` 之前已经用 `parameters` 校验过一次，插件再校验是重复；`apply_patch` 仍然自己解析并原子写盘，锚点失配照旧整次回滚。
+
+### 变更
+
+- 兼容范围从 `>=0.2.0-0 <0.3.0-0` 放宽到 `>=0.1.0-rc.2 <0.3.0-0`。插件的契约面只有 `tools/execute`、`tools/post-execute`、`tools.register`、`systemPrompt.section`、`webServer.register`、`ctx.agents`、`fs.writeText`、`slots.register` 这几处，逐版本核对结果见 README「内核版本适配」。
+- `@deepseek-ai/dsh-tools@0.2.1-rc.2` 移入 `devDependencies`，只给 `probe-parity.mjs` 做对照，装插件不会带上它。
+
+### 新增
+
+- `probe-parity.mjs`：把内置助手和宿主校验器放在同一批 (schema, value) 上跑，断言两件事——宿主放行的值插件也必须放行（用在真实契约上），以及插件放行的值宿主必须也放行（绝不伪造宿主会拒绝的结果）。25 个用例覆盖 dsh-ops 0.4.x 三支 `oneOf`、dsh-ops 0.5.x、宿主 pwsh 契约、`apply_patch` 输出。
+- 内置校验器在宿主忽略的约束（`pattern`、`anyOf`、`minItems`、未知关键字）上更严。更严只会让断路器放行、真命令照跑；更宽才会伪造出宿主拒收的结果，所以这个方向是刻意的。
+
 ## 1.0.4
 
 开关从「全局一个」改成「每个会话一个」。

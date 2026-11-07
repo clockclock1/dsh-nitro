@@ -77,6 +77,57 @@ curl -X POST http://127.0.0.1:<port>/nitro/toggle -d '{"sessionId":"session-abc"
 
 ---
 
+## 内核版本适配
+
+插件运行时**不依赖任何 `@deepseek-ai/*` 包**。和内核的全部接触面就是下面这几处，每一处缺失时的降级写在第三列——降级意味着这个功能不生效，不会伪造结果，也不会把宿主搞坏。
+
+| 接触面 | 提供者 | 缺失时 |
+| --- | --- | --- |
+| `ctx.on('tools/execute', …)` | `@deepseek-ai/dsh-tools` | 断路器不工作，所有命令照常执行 |
+| `ctx.on('tools/post-execute', …)` | `@deepseek-ai/dsh-tools` | 输出不脱水，看到完整日志 |
+| `ctx.tools.register(...)` | `@deepseek-ai/dsh-tools` | `apply_patch` 不可用，模型回落到 `write`/`edit` |
+| `ctx.tools.get(name).output.schema` | `@deepseek-ai/dsh-tools` | 读不到契约就按工具名给默认形状 |
+| `ctx.systemPrompt.section(...)` | `@deepseek-ai/dsh-system-prompt` | 提示不注入，靠模型自己判断 |
+| `ctx.webServer.register(...)` | `@deepseek-ai/dsh-web` | `/nitro/state`、`/nitro/toggle` 不可用，按钮无法工作 |
+| `ctx.agents.get(id).status` | `@deepseek-ai/dsh-agent` | 只能靠「有工具正在执行」推断会话忙，判断会偏保守 |
+| `ctx.fs.writeText(..., signal, policy)` | `@deepseek-ai/dsh-fs-local` | `apply_patch` 写盘失败，报错不落盘 |
+| `ctx.slots.register('conversation.input.left', …)` | 客户端槽位 | 输入框里没有 ⚡ 按钮，只能用 `/nitro/toggle` |
+
+### 逐版本核对结果
+
+对 npm 上全部 42 个 `@deepseek-ai/dsh` 版本，取同号的 `dsh-tools` / `dsh-web-app` / `dsh-fs` 子包 tarball，查找上表用到的符号（`tools/execute`、`tools/post-execute`、`systemPrompt`、`agents`、`webServer`、`fs/observed`、`writeText`）。原始数据在 [`compat-matrix.json`](./compat-matrix.json)。
+
+| 内核版本 | 工具与提示 | 文件系统 | Web 服务 | 结果 |
+| --- | --- | --- | --- | --- |
+| `0.0.1-rc.1`、`0.0.1-rc.2` | ✓ | ✓ | — | 断路器、脱水器、`apply_patch`、提示注入可用；`/nitro/*` 路由缺失，按钮无法工作 |
+| `0.0.1-rc.5` 起至 `0.2.2-rc.1`（40 个版本，含全部 alpha/rc） | ✓ | ✓ | ✓ | 全部功能可用 |
+
+40 个版本全部就绪，只有最早的两个 `0.0.1` 缺 `webServer`。
+
+### 为什么 `dsh` 版本范围写成一长串
+
+`peerDependencies.dsh` / `engines.dsh` 是 11 支 `||` 拼接，看起来啰嗦，但这是**唯一能真匹配预发布版本**的写法：
+
+```
+>=0.0.1-rc.5 <0.0.2-0 || >=0.1.0-rc.2 <0.1.1-0 || >=0.1.1-rc.1 <0.1.2-0 ||
+>=0.1.2-alpha.2 <0.1.3-0 || >=0.1.3-alpha.2 <0.1.4-0 || >=0.1.5-alpha.1 <0.1.6-0 ||
+>=0.1.6-alpha.1 <0.1.7-0 || >=0.1.7-alpha.1 <0.1.8-0 || >=0.2.0-rc.1 <0.2.1-0 ||
+>=0.2.1-alpha.1 <0.2.2-0 || >=0.2.2-alpha.2 <0.3.0-0
+```
+
+semver 有一条容易踩的规则：**版本号带预发布标记时，range 里必须有一个比较符落在同一个 `major.minor.patch` 上**。所以 `>=0.2.0-0 <0.3.0-0` 匹配 `0.2.1-rc.2` 是 `false`——`0.2.0` 和 `0.2.1` 不是同一组。想覆盖某个 `patch` 的全部预发布，就得为这一组单列一支。11 支正好对应内核出现过的 11 个 `patch` 组，一支不多。
+
+代价是：内核以后发 `0.2.3-rc.1` 时，这个范围不匹配，市场会把它标成不兼容——那是正确的默认，新版本需要重新核对符号后才能声称兼容。
+
+### 客户端部分的边界
+
+输入框里的 ⚡ 按钮走的是宿主的客户端槽位 `conversation.input.left`，这个名字由 DSH Desktop 的前端 bundle 决定，在 npm 包里的 42 个内核版本中都查不到。所以它没法按内核版本核对，只能在实际桌面上验证；槽位缺失时按钮不出现，`/nitro/state` 与 `/nitro/toggle` 仍然可用：
+
+```bash
+curl "http://127.0.0.1:<port>/nitro/state?session=<id>"
+curl -X POST "http://127.0.0.1:<port>/nitro/toggle" -d '{"sessionId":"<id>","enabled":true}'
+```
+
 ## 与其他插件的兼容性
 
 - 只挂 `tools/execute`、`tools/post-execute` 两个 waterfall 与一个 `systemPrompt.section`，全部各自持有独立 disposer，卸载时自动摘除
@@ -136,10 +187,12 @@ cordis.patch.yml    插件装配补丁
 link-profile.mjs    本地装配 / 撤销脚本
 screenshots.json    市场详情页截图清单（路径相对仓库根）
 screenshots/        截图资源
+compat-matrix.json  42 个内核版本的契约符号核对结果
 icon.png            市场列表图标（256×256）
 CHANGELOG.md        版本记录
 LICENSE             MIT
 probe-*.mjs         离线自检脚本（mock ctx / mock ModuleLoader）
+probe-parity.mjs    内置 schema 助手与宿主校验器的对照（devDependency 提供对照方）
 shoot.mjs           截屏脚本（CDP 驱动运行中的 DSH Web GUI）
 gen-icon.mjs        图标生成脚本（零依赖 PNG 编码）
 ```
