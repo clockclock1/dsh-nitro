@@ -65,10 +65,24 @@ jobs:
       - name: 打包
         run: npm pack
 
+      # 本地 `node publish.mjs` 可能已经把版本推上 registry；CI 再发会 ENEEDAUTH
+      #（仓库未配 NPM_TOKEN）或 E403（版本已占用）。已存在则跳过，继续打 GitHub release。
       - name: 发布到 npm
-        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "$name@$version 已在 registry，跳过 npm publish"
+            exit 0
+          fi
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error::NPM_TOKEN 未配置，且 $name@$version 尚未发布。请在仓库 Secrets 里加入 NPM_TOKEN，或先本地 npm publish。"
+            exit 1
+          fi
+          npm publish --access public
 
       - name: 创建 GitHub release
         uses: softprops/action-gh-release@v2
