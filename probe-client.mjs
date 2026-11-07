@@ -70,15 +70,33 @@ const ctx = {
   },
 }
 exports.apply(ctx)
-if (slots.length !== 1) throw new Error('apply() registered no slot entry')
+if (slots.length !== 2) throw new Error(`apply() should register 2 slots, got ${slots.length}`)
+
+const composerSlot = slots.find((slot) => slot.options.name === 'conversation.input.left')
+const headerSlot = slots.find((slot) => slot.options.name === 'conversation.session.header.actions')
+if (composerSlot === undefined) throw new Error('composer slot not registered')
+if (headerSlot === undefined) throw new Error('header slot not registered — nothing would show mid-turn')
 
 // The component must render a button and must bail out without a session id.
-const none = slots[0].component({ sessionId: undefined })
+const none = composerSlot.component({ sessionId: undefined })
 if (none !== null) throw new Error(`expected null without sessionId, got ${JSON.stringify(none)}`)
 
-const rendered = slots[0].component({ sessionId: 's1' })
+const rendered = composerSlot.component({ sessionId: 's1' })
 const text = JSON.stringify(rendered)
 if (!text.includes('极速')) throw new Error('rendered button has no label')
+
+// The header badge is what the user sees while a turn runs: it must stay null
+// when idle and must state the mode when busy.
+const badgeOff = headerSlot.component({ sessionId: undefined })
+if (badgeOff !== null) throw new Error('header badge must render nothing without a session id')
+
+// The React stub never runs effects, so the badge is asserted through its pure
+// model: the mid-turn state is exactly what was missing from the UI before.
+const badgeModel = exports.runningBadgeModel
+if (typeof badgeModel !== 'function') throw new Error('runningBadgeModel is not exported')
+const badgeIdle = badgeModel({ enabled: true, running: false })
+const badgeOn = badgeModel({ enabled: true, running: true })
+const badgeOffRun = badgeModel({ enabled: false, running: true })
 
 // buttonModel holds the whole visual rule set, so assert it directly: the
 // mid-turn lock is the part a user must not be able to click through, and a
@@ -102,6 +120,12 @@ const checks = [
     'every title names the per-session scope',
     armed.title.includes('只影响这个会话') && idle.title.includes('只影响这个会话'),
   ],
+  ['the header badge is absent while idle', badgeIdle === null],
+  [
+    'the header badge states the mode while running',
+    badgeOn.text.includes('已开启') && badgeOn.state === 'on' && badgeOffRun.text.includes('已关闭') && badgeOffRun.state === 'off',
+  ],
+  ['the header badge explains why it cannot be clicked', badgeOn.title.includes('本轮正在运行')],
 ]
 for (const [label, pass] of checks) {
   console.log(` ${pass ? 'ok  ' : 'FAIL'} ${label}`)

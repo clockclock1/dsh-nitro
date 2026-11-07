@@ -33,9 +33,10 @@
 - 旧版单开关文件 `{"enabled": false}` 会被当成 `default` 读入，升级后不改行为
 - 文件一旦变化（另一个窗口切换或手改），下一次工具调用即生效，无需重载插件
 - **会话运行中不能切**：按钮置灰并显示「运行中」，`POST /nitro/toggle` 对正在跑的会话直接返回 `409 {ok:false, reason:"session-busy"}`。中途换挡会让同一轮里的命令一半按旧规则、一半按新规则走，所以这一步是硬拒绝，不只是 UI 提示
+- **运行中也看得到档位**：会话跑起来后输入框左侧插槽会收起，⚡ 按钮看不见了；此时会话头部右侧出现只读徽标（`⚡ 极速 · 已开启` / `⚡ 极速 · 已关闭`），2.5 秒轮询，空闲时自动消失，平时仍然只有一个控件
 - `GET /nitro/state?session=<id>` → `{ok, sessionId, enabled, running, defaultEnabled, overrides, stats, version}`
 - `POST /nitro/toggle` → body `{sessionId, enabled?}`；省略 `enabled` 则取反，省略 `sessionId` 则改 `default`
-- 界面：输入框左侧 ⚡ 按钮（`conversation.input.left` 槽，id `nitro`，order 20），多标签页通过 `dsh-nitro:changed` 事件与 1.5 秒轮询保持一致
+- 界面：输入框左侧 ⚡ 按钮（`conversation.input.left` 槽，id `nitro`，order 20）+ 会话头部只读徽标（`conversation.session.header.actions` 槽，id `nitro-running`，order 30），多标签页通过 `dsh-nitro:changed` 事件与 1.5 秒轮询保持一致
 
 ```bash
 curl "http://127.0.0.1:<port>/nitro/state?session=session-abc"
